@@ -1,0 +1,6 @@
+---
+applications:
+- name: itdemo-demoapp
+  memory: 512M
+  instances: 1
+  path: ../../../target/demo-0.0.1-SNAPSHOT.jar

@@ -1,0 +1,13 @@
+#!/usr/bin/env groovy
+
+catchError {
+    // Start the pipeline
+
+    stage('Hello') {
+        node {
+            echo 'Hello, world.'
+        }
+    }
+
+    currentBuild.result = currentBuild.result ?: 'SUCCESS'
+}

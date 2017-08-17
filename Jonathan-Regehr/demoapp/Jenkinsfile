@@ -1,0 +1,140 @@
+#!/usr/bin/env groovy
+
+env.ORG_NONPROD = 'itdemo'
+env.ORG_PROD = 'itdemo'
+
+env.CF_DOMAIN_NONPROD = 'local.pcfdev.io'
+env.CF_DOMAIN_PROD = 'local.pcfdev.io'
+
+env.CF_URL_NONPROD = 'https://api.' + env.CF_DOMAIN_NONPROD
+env.CF_URL_PROD = 'https://api.' + env.CF_DOMAIN_PROD
+
+catchError {
+    // Start the pipeline
+
+    if (env.BRANCH_NAME == 'master') {
+        stage('Checkout Code, Build java app') {
+            node {
+                checkoutBuildAndStash()
+            }
+        }
+
+        stage('Deploy to dev') {
+            node {
+                unstash 'source'
+                APP_NAME = getAppNameFromManifest(manifest: './src/main/cloudfoundry/manifest-dev.yml')
+
+                withLogin(credentialsId: 'localCreds', org: env.ORG_NONPROD, space: 'dev', url: env.CF_URL_NONPROD) {
+                    deployToCloudFoundry(manifest: './src/main/cloudfoundry/manifest-dev.yml', appName: "${APP_NAME}")
+                }
+            }
+        }
+
+        // prompt to deploy to prod
+        // deploy to prod (with build number)
+        boolean deploy = true
+        stage('Deploy to Prod') {
+            try {
+                timeout(time: 3, unit: 'DAYS') {
+                    input message: 'Ready to deploy to Prod?', ok: 'Yes, deploy to Prod'
+                }
+            } catch (InterruptedException _) {
+               // do not deploy to next environment
+               deploy = false
+            }
+
+            if (deploy) {
+                node {
+                    APP_NAME = getAppNameFromManifest(manifest: './src/main/cloudfoundry/manifest-prod.yml') + "-${env.BUILD_NUMBER}"
+                    withLogin(credentialsId: 'localCreds', org: env.ORG_PROD, space: 'prod', url: env.CF_URL_PROD) {
+                        deployToCloudFoundry(manifest: './src/main/cloudfoundry/manifest-prod.yml', appName: "${APP_NAME}")
+                    }
+                }
+            }
+        }
+
+        if (deploy) {
+            stage('Make Prod Active') {
+                boolean makeActive = true
+                try {
+                    timeout(time: 3, unit: 'DAYS') {
+                        input message: 'Ready to Make Prod Active?', ok: 'Yes, make Prod active'
+                    }
+                } catch (InterruptedException _) {
+                   // do not deploy to next environment
+                   makeActive = false
+                }
+
+                if (makeActive) {
+                    node {
+                        BARE_APP_NAME = getAppNameFromManifest(manifest: './src/main/cloudfoundry/manifest-prod.yml')
+                        APP_NAME = BARE_APP_NAME + "-${env.BUILD_NUMBER}"
+
+                        withLogin(credentialsId: 'localCreds', org: env.ORG_PROD, space: 'prod', url: env.CF_URL_PROD) {
+                            makeActiveAndCleanUp(domain: "${CF_DOMAIN_PROD}", bareAppName: "${BARE_APP_NAME}", newAppName: "${APP_NAME}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    currentBuild.result = currentBuild.result ?: 'SUCCESS'
+}
+
+// Helpers
+void withLogin(Map args, Closure closure) {
+	withEnv(["CF_HOME=${env.WORKSPACE}", "CF=${tool 'cf'}"]) {
+		withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: args.credentialsId, usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']]) {
+            sh "${cf}/cf login --skip-ssl-validation -a ${args.url} -u \${USERNAME} -p \${PASSWORD} -o ${args.org} -s ${args.space}"
+			closure.call()
+			sh "${cf}/cf logout"
+		}
+	}
+}
+
+// Function - Build a java application.
+def checkoutBuildAndStash() {
+
+    checkout scm
+
+    withEnv(["JAVA_HOME=${tool 'java8'}", "MAVEN_HOME=${tool 'M3'}"]) {
+        sh "${env.MAVEN_HOME}/bin/mvn clean package -P cloud -Dbuild.identifier=${env.BUILD_NUMBER}"
+    }
+
+    stash 'source'
+}
+
+// Function - Deploy to cloudFoundry using the specified org, space, manifest, and credentials
+def deployToCloudFoundry (Map args) {
+    sh "${cf}/cf push ${args.appName} -f ${args.manifest}"
+}
+
+// Function - get the app name from a manifest file.
+def getAppNameFromManifest (Map args) {
+    return sh (script: "grep 'name:' ${args.manifest}|cut -d' ' -f3", returnStdout: true).trim()
+}
+
+//Function - make new build active, clean up old builds.
+def makeActiveAndCleanUp(Map args) {
+    // Map the newest app to the prod app name
+    sh "${cf}/cf map-route ${args.newAppName} ${args.domain} --hostname ${args.bareAppName}"
+
+    // Shut down the older versions of the app
+    sh """
+        ${cf}/cf apps | grep -i ${args.bareAppName} | grep -v -i ${args.newAppName} | awk '{print \$1}' | while read oldAppName;
+        do
+            ${cf}/cf stop \$oldAppName
+        done
+    """
+
+    // Delete apps order than the most recent two
+    sh """
+        ${cf}/cf apps | grep ${args.bareAppName} | awk '{print \$1}' | awk -F"-" '{print \$NF,\$0}' | sort -nr | cut -f2- -d" " | tail -n +3 | while read oldAppName;
+        do
+            ${cf}/cf delete \$oldAppName -f;
+        done
+    """
+
+    sh "${cf}/cf delete-orphaned-routes -f"
+}
