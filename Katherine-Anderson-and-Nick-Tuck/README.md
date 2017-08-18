@@ -12,7 +12,7 @@
 
 # Speakers
 
-## Katherine Anderson
+## Katherine Andersen
 * Web site: [kathyia.com](http://www.kathyia.com)
 * LinkedIn: [linkedin.com/in/kathyiandersen](https://www.linkedin.com/in/kathyiandersen/)
 * Twitter: [@kathyia](https://twitter.com/kathyia)
