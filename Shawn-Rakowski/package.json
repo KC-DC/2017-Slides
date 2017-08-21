@@ -1,0 +1,23 @@
+{
+  "name": "phaser-presentation",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "dependencies": {
+    "electron": "^1.6.11"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/srakowski/phaser-presentation.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/srakowski/phaser-presentation/issues"
+  },
+  "homepage": "https://github.com/srakowski/phaser-presentation#readme"
+}

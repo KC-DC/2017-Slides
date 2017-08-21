@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="cache-control" content="max-age=0" />
+    <meta http-equiv="cache-control" content="no-cache" />
+    <meta http-equiv="expires" content="0" />
+    <meta http-equiv="expires" content="Tue, 01 Jan 1980 1:00:00 GMT" />
+    <meta http-equiv="pragma" content="no-cache" />    
+    <title>Let's Build A Game!</title>
+    <script src="phaser.min.js"></script>
+</head>
+<body>
+    <div id="game"></div>
+    <br />
+    <button onclick="window.history.back()">back</button>
+    <script>
+
+        var menu = function (game) {
+
+            function preload() {
+                game.load.image('planet', 'assets/planet.png');
+                game.load.spritesheet('button', 'assets/playbutton.png', 190, 45);
+            }
+
+            function create() {
+                
+                var planet = game.add.sprite(game.world.centerX, game.world.height - 100, 'planet');
+                planet.anchor.setTo(0.5, 0.5);
+                planet.rotation = game.math.degToRad(-90);
+                planet.scale.setTo(2, 2);
+
+                var text = game.add.text(game.world.centerX, 160, 'DERPFENDER!!!!');
+                text.anchor.set(0.5);
+                text.align = 'center';
+                text.font = 'Consolas';
+                text.fontSize = 100;
+                text.fill = '#00FFFF';
+                text.setShadow(5, 5, 'rgba(255,255,255,0.5)', 15);
+
+                var play = game.add.button(game.world.centerX, game.world.centerY, 'button', onPlay, this, 1, 0);
+                play.anchor.setTo(0.5, 0.5);
+            }
+
+            function onPlay() {
+                game.state.start('gameplay');
+            }
+
+            return {
+                preload:preload,
+                create: create,
+            }
+        }
+
+        var gameplay = function (game) {
+            var planet;
+            var player;
+            var weapon;
+            var controls;
+            var enemies;
+            var scoreText;
+            var fireSfx;
+            var explodeSfx;
+            var emitter;
+
+            function preload() {
+                game.load.image('planet', 'assets/planet.png');
+                game.load.image('player', 'assets/spaceShip.png');
+                game.load.image('missile', 'assets/missile.png');
+                game.load.image('enemy', 'assets/enemy.png');
+                game.load.audio('explode', 'assets/explode.ogg');
+                game.load.audio('fire', 'assets/fire.ogg');
+                game.load.audio('music', 'assets/VolatileReaction.ogg');
+                game.load.image('smoke', 'assets/smoke.png');
+                game.load.image('firePart', 'assets/fire.png');
+            }
+            
+            function create() {
+                planet = game.add.sprite(-40, 0, 'planet');
+                game.physics.enable(planet, Phaser.Physics.ARCADE);
+
+                player = game.add.sprite(260, game.world.centerY, 'player');
+                player.anchor.setTo(0.5, 0.5);
+                player.rotation = game.math.degToRad(-90);
+                player.score = 0;
+
+                weapon = game.add.weapon(30, 'missile');
+                weapon.bulletKillType = Phaser.Weapon.KILL_WORLD_BOUNDS;
+                weapon.bulletSpeed = 1000;
+                weapon.fireRate = 200;
+                weapon.bulletAngleOffset = 90;
+                weapon.bulletAngleVariance = 2;
+                weapon.bulletSpeedVariance = 200;
+                weapon.trackSprite(player, 32, 0, false);
+
+                controls = game.input.keyboard.createCursorKeys();
+                controls.fire = game.input.keyboard.addKey(Phaser.KeyCode.SPACEBAR);
+
+                enemies = game.add.group();
+                enemies.enableBody = true;
+
+                game.time.events.loop(Phaser.Timer.SECOND / 2, spawnEnemy, this);
+
+                scoreText = game.add.text(game.world.width - 300, game.world.height - 100, "000000", {
+                    font: "72px Consolas",
+                    fill: "#FAFAFA",
+                    align: "right",
+                });
+
+                fireSfx = game.add.audio('fire');
+                explodeSfx = game.add.audio('explode');
+                weapon.onFire.add(function () { fireSfx.play(); }, this);
+
+                music = game.add.audio('music');
+                music.play();
+                music.loopFull();
+                music.volume = 0.25;
+
+                emitter = game.add.emitter(0, 0, 100);
+                emitter.makeParticles(['smoke', 'firePart']);
+                emitter.gravity = 0;
+                emitter.minParticleSpeed.setTo(-60, -60);
+                emitter.maxParticleSpeed.setTo(60, 60);
+            }
+
+            function update() {
+                game.physics.arcade.overlap(weapon.bullets, enemies, onHitEnemy);
+                game.physics.arcade.overlap(planet, enemies, onHitPlanet);
+
+                if (controls.up.isDown) {
+                    player.y -= 6;
+                }
+                if (controls.down.isDown) {
+                    player.y += 6;
+                }
+                if (controls.fire.isDown) {
+                    weapon.fire(null, 1000, player.y);
+                }
+            }
+
+            function onHitEnemy(bullet, enemy) {
+                enemy.destroy();
+                player.score += 250;
+                scoreText.setText(pad(player.score, 6));
+                explodeSfx.play();
+            }
+
+            function onHitPlanet(planet, enemy) {
+                game.camera.shake(0.01, 200);
+                explodeSfx.play();
+                enemy.destroy();
+                planet.x -= 10;
+                if (planet.x < -200) {
+                    game.state.start('gameover', true, true, player.score);
+                }
+            }
+
+            function spawnEnemy() {
+                var enemy = enemies.create(game.world.width, game.rnd.between(0, game.world.height), 'enemy');
+                enemy.anchor.setTo(0.5, 0.5);
+                enemy.rotation = game.math.degToRad(90);
+                enemy.body.velocity.x = -200 - game.rnd.between(0, 100);
+                enemy.events.onDestroy.add(emitSmoke, this);
+            }
+
+            function emitSmoke(destroyedObject) {
+                emitter.x = destroyedObject.x;
+                emitter.y = destroyedObject.y;
+                emitter.start(true, 1000, null, 60);
+            }
+
+            function pad(a,b){return(1e15+a+"").slice(-b)}
+
+            return {
+                preload: preload,
+                create: create,
+                update: update,
+            }
+        };
+
+        var gameover = function (game) {
+
+            var score = 0;
+
+            function init (finalScore) {
+                score = "SCORE " + finalScore;
+            }
+
+            function preload() {
+                game.load.image('planet', 'assets/planet.png');
+                game.load.spritesheet('button', 'assets/playbutton.png', 190, 45);
+            }
+
+            function create() {
+                
+                var planet = game.add.sprite(game.world.centerX, game.world.height - 100, 'planet');
+                planet.anchor.setTo(0.5, 0.5);
+                planet.rotation = game.math.degToRad(-90);
+                planet.scale.setTo(2, 2);
+
+                var text = game.add.text(game.world.centerX, 160, 'GAME OVER!!!');
+                text.anchor.set(0.5);
+                text.align = 'center';
+                text.font = 'Consolas';
+                text.fontSize = 100;
+                text.fill = '#00FFFF';
+                text.setShadow(5, 5, 'rgba(255,255,255,0.5)', 15);
+
+                var scoreText = game.add.text(game.world.centerX, 240, score);
+                scoreText.anchor.set(0.5);
+                scoreText.align = 'center';
+                scoreText.font = 'Consolas';
+                scoreText.fontSize = 100;
+                scoreText.fill = '#00FFFF';
+                scoreText.setShadow(5, 5, 'rgba(255,255,255,0.5)', 15);
+
+                var play = game.add.button(game.world.centerX, game.world.centerY, 'button', onPlay, this, 1, 0);
+                play.anchor.setTo(0.5, 0.5);
+            }
+
+            function onPlay() {
+                game.state.start('gameplay', true, true);
+            }
+
+            return {
+                init: init,
+                preload:preload,
+                create: create,
+            }
+        }
+
+        var game = new Phaser.Game(1280, 720, Phaser.AUTO, 'game');
+        game.state.add('menu', menu);
+        game.state.add('gameplay', gameplay);
+        game.state.add('gameover', gameover);
+        game.state.start('menu');
+
+    </script>
+</body>
+</html>
